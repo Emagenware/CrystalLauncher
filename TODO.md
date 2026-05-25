@@ -3,9 +3,9 @@
 ### Backend
 - [ ] Version Selector (pass version argument from UI)
 - [ ] Custom RAM Allocation (memory slider implementation)
-- [ ] Java Auto-Downloader:
-  - [ ] Detect required Java version (8 vs 17 vs 21)
-  - [ ] Download correct runtime if missing
+- [x] Java Auto-Downloader:
+  - [x] Detect required Java version (8 vs 17 vs 21)
+  - [x] Download correct runtime if missing
 - [ ] Mod Management:
   - [ ] Fabric Installer logic
   - [ ] Modrinth Search API
