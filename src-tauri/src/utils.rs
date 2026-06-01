@@ -34,7 +34,8 @@ pub fn download_file_if_needed(url: &str, path: &Path) -> Result<(), String> {
     }
 
     let client = reqwest::blocking::Client::new();
-    let bytes = client.get(url)
+    let bytes = client
+        .get(url)
         .send()
         .map_err(|e| format!("Failed to download {}: {}", url, e))?
         .bytes()
@@ -65,25 +66,22 @@ pub fn download_assets(assets_root: &Path, version_json: &str) -> Result<(), Str
     let index_path = assets_root
         .join("indexes")
         .join(format!("{}.json", manifest.asset_index.id));
-    
+
     download_file_if_needed(index_url, &index_path)?;
 
     let index_json = std::fs::read_to_string(index_path).map_err(|e| e.to_string())?;
     let asset_map: AssetMap = serde_json::from_str(&index_json).map_err(|e| e.to_string())?;
 
     use rayon::prelude::*;
-    asset_map
-        .objects
-        .par_iter()
-        .try_for_each(|(_, object)| {
-            let hash_prefix = &object.hash[0..2];
-            let path = objects_dir.join(hash_prefix).join(&object.hash);
-            let url = format!(
-                "https://resources.download.minecraft.net/{}/{}",
-                hash_prefix, object.hash
-            );
-            download_file_if_needed(&url, &path)
-        })?;
+    asset_map.objects.par_iter().try_for_each(|(_, object)| {
+        let hash_prefix = &object.hash[0..2];
+        let path = objects_dir.join(hash_prefix).join(&object.hash);
+        let url = format!(
+            "https://resources.download.minecraft.net/{}/{}",
+            hash_prefix, object.hash
+        );
+        download_file_if_needed(&url, &path)
+    })?;
 
     Ok(())
 }
@@ -157,8 +155,7 @@ struct AdoptiumPackage {
 
 pub fn download_jre(jres_root: &Path, major_version: u32) -> Result<PathBuf, String> {
     let jre_dir = jres_root.join(format!("jre{}", major_version));
-    
-    // Check if JRE already exists and is valid
+
     if jre_dir.exists() {
         let java_exe = if cfg!(target_os = "windows") {
             jre_dir.join("bin").join("javaw.exe")
@@ -173,36 +170,54 @@ pub fn download_jre(jres_root: &Path, major_version: u32) -> Result<PathBuf, Str
 
     let os = get_adoptium_os();
     let arch = get_adoptium_arch();
-    let url = format!("https://api.adoptium.net/v3/assets/latest/{}/hotspot?os={}&arch={}&image_type=jre", major_version, os, arch);
+    let url = format!(
+        "https://api.adoptium.net/v3/assets/latest/{}/hotspot?os={}&arch={}&image_type=jre",
+        major_version, os, arch
+    );
 
     let client = reqwest::blocking::Client::new();
-    let response: Vec<AdoptiumAsset> = client.get(&url)
+    let response: Vec<AdoptiumAsset> = client
+        .get(&url)
         .send()
         .map_err(|e| format!("Failed to fetch JRE {}: {}", major_version, e))?
         .json()
         .map_err(|e| format!("Invalid JRE metadata response: {}", e))?;
 
     if response.is_empty() {
-        return Err(format!("JRE {} not available for {} architecture", major_version, arch));
+        return Err(format!(
+            "JRE {} not available for {} architecture",
+            major_version, arch
+        ));
     }
 
     let download_url = &response[0].binary.package.link;
-    let filename = format!("jre{}-{}-{}.{}", major_version, os, arch, if cfg!(target_os = "windows") { "zip" } else { "tar.gz" });
+    let filename = format!(
+        "jre{}-{}-{}.{}",
+        major_version,
+        os,
+        arch,
+        if cfg!(target_os = "windows") {
+            "zip"
+        } else {
+            "tar.gz"
+        }
+    );
     let archive_path = jres_root.join(&filename);
 
     download_file_if_needed(download_url, &archive_path)?;
 
-    // Extract to temp location
     let temp_extract = jres_root.join(format!("jre{}-temp", major_version));
     if temp_extract.exists() {
         std::fs::remove_dir_all(&temp_extract).map_err(|e| e.to_string())?;
     }
     std::fs::create_dir_all(&temp_extract).map_err(|e| e.to_string())?;
-    
+
     if cfg!(target_os = "windows") {
-        let file = std::fs::File::open(&archive_path).map_err(|e| format!("Failed to open JRE archive: {}", e))?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Failed to read JRE archive: {}", e))?;
-        
+        let file = std::fs::File::open(&archive_path)
+            .map_err(|e| format!("Failed to open JRE archive: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Failed to read JRE archive: {}", e))?;
+
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
             let path = file.mangled_name();
@@ -220,12 +235,16 @@ pub fn download_jre(jres_root: &Path, major_version: u32) -> Result<PathBuf, Str
     } else {
         use std::process::Command;
         Command::new("tar")
-            .args(&["-xzf", &archive_path.to_string_lossy(), "-C", &temp_extract.to_string_lossy()])
+            .args(&[
+                "-xzf",
+                &archive_path.to_string_lossy(),
+                "-C",
+                &temp_extract.to_string_lossy(),
+            ])
             .status()
             .map_err(|e| format!("Failed to extract JRE: {}", e))?;
     }
 
-    // Unwrap top-level directory if needed
     let entries: Vec<_> = std::fs::read_dir(&temp_extract)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
@@ -237,18 +256,27 @@ pub fn download_jre(jres_root: &Path, major_version: u32) -> Result<PathBuf, Str
         temp_extract.clone()
     };
 
-    // Verify valid JRE structure
+    let jre_source = if cfg!(target_os = "macos") {
+        let contents_home = jre_source.join("Contents").join("Home");
+        if contents_home.join("bin").exists() {
+            contents_home
+        } else {
+            jre_source
+        }
+    } else {
+        jre_source
+    };
+
     let bin_dir = jre_source.join("bin");
     if !bin_dir.exists() {
         return Err(format!("Invalid JRE structure: missing bin directory"));
     }
-    
+
     if jre_dir.exists() {
         std::fs::remove_dir_all(&jre_dir).map_err(|e| e.to_string())?;
     }
-    
-    std::fs::rename(&jre_source, &jre_dir)
-        .map_err(|e| format!("Failed to install JRE: {}", e))?;
+
+    std::fs::rename(&jre_source, &jre_dir).map_err(|e| format!("Failed to install JRE: {}", e))?;
 
     if temp_extract.exists() {
         let _ = std::fs::remove_dir_all(&temp_extract);
@@ -264,7 +292,7 @@ pub fn download_libraries(libraries_root: &Path, version_json: &str) -> Result<(
 
     // Collect all downloads to perform
     let mut downloads = Vec::new();
-    
+
     for lib in manifest.libraries {
         match &lib.downloads.artifact {
             Some(artifact) => {
@@ -277,7 +305,10 @@ pub fn download_libraries(libraries_root: &Path, version_json: &str) -> Result<(
                     if let Some(classifier_key) = natives_map.get(os_key) {
                         if let Some(classifiers) = &lib.downloads.classifiers {
                             if let Some(artifact) = classifiers.get(classifier_key) {
-                                downloads.push((artifact.url.clone(), libraries_root.join(&artifact.path)));
+                                downloads.push((
+                                    artifact.url.clone(),
+                                    libraries_root.join(&artifact.path),
+                                ));
                             }
                         }
                     }
