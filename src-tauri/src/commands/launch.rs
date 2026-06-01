@@ -4,7 +4,6 @@ use crate::utils;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use tauri::utils::config::CustomSignCommandConfig::Command;
 use tauri::State;
 
 #[tauri::command]
@@ -108,7 +107,7 @@ pub fn launch_instance(
         ))
         .arg("-cp")
         .arg(classpath)
-        .arg("net.minecraft.client.main.Main")
+        .arg(&manifest.main_class)
         .arg("--version")
         .arg(&manifest.id)
         .arg("--accessToken")
