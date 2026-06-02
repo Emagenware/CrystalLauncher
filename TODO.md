@@ -3,6 +3,7 @@
 ### Backend
 - [ ] Version Selector (pass version argument from UI)
 - [ ] Custom RAM Allocation (memory slider implementation)
+- [x] Full Support for both Linux and macOS
 - [x] Java Auto-Downloader:
   - [x] Detect required Java version (8 vs 17 vs 21)
   - [x] Download correct runtime if missing

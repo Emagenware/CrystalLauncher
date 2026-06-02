@@ -69,20 +69,53 @@ pub fn download_assets(assets_root: &Path, version_json: &str) -> Result<(), Str
 
     download_file_if_needed(index_url, &index_path)?;
 
-    let index_json = std::fs::read_to_string(index_path).map_err(|e| e.to_string())?;
+    let index_json = std::fs::read_to_string(&index_path).map_err(|e| e.to_string())?;
     let asset_map: AssetMap = serde_json::from_str(&index_json).map_err(|e| e.to_string())?;
 
     use rayon::prelude::*;
-    asset_map.objects.par_iter().try_for_each(|(_, object)| {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let failures = Mutex::new(Vec::<String>::new());
+    let done = AtomicUsize::new(0);
+    let total = asset_map.objects.len();
+
+    asset_map.objects.par_iter().for_each(|(_, object)| {
         let hash_prefix = &object.hash[0..2];
         let path = objects_dir.join(hash_prefix).join(&object.hash);
         let url = format!(
             "https://resources.download.minecraft.net/{}/{}",
             hash_prefix, object.hash
         );
-        download_file_if_needed(&url, &path)
-    })?;
 
+        let mut ok = false;
+        for attempt in 0..3 {
+            match download_file_if_needed(&url, &path) {
+                Ok(_) => {
+                    ok = true;
+                    break;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(200 * (attempt + 1))),
+            }
+        }
+
+        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+        if n % 200 == 0 {
+            println!("assets: {}/{}", n, total);
+        }
+        if !ok {
+            failures.lock().unwrap().push(object.hash.clone());
+        }
+    });
+
+    let failures = failures.into_inner().unwrap();
+    if !failures.is_empty() {
+        return Err(format!(
+            "{} of {} assets failed to download",
+            failures.len(),
+            total
+        ));
+    }
     Ok(())
 }
 
@@ -328,6 +361,34 @@ pub fn download_libraries(libraries_root: &Path, version_json: &str) -> Result<(
     Ok(())
 }
 
+pub fn native_artifact_matches(path: &str) -> bool {
+    if !path.contains("natives-") {
+        return true;
+    }
+
+    // OS gate.
+    let os_ok = if cfg!(target_os = "windows") {
+        path.contains("natives-windows")
+    } else if cfg!(target_os = "macos") {
+        path.contains("natives-macos") || path.contains("natives-osx")
+    } else {
+        path.contains("natives-linux")
+    };
+    if !os_ok {
+        return false;
+    }
+
+    let is_arm64 = path.contains("-arm64");
+    let is_x86 = path.contains("-x86") && !path.contains("-x86_64");
+
+    if cfg!(target_arch = "x86_64") {
+        !is_arm64 && !is_x86
+    } else if cfg!(target_arch = "aarch64") {
+        is_arm64
+    } else {
+        is_x86
+    }
+}
 pub fn extract_natives(
     libraries_root: &Path,
     natives_dir: &Path,

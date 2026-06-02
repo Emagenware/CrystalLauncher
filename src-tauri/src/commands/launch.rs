@@ -1,10 +1,11 @@
 use crate::models::fs::LauncherPaths;
 use crate::models::mc::VersionManifest;
 use crate::utils;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub fn launch_instance(
@@ -13,6 +14,7 @@ pub fn launch_instance(
     name: String,
     access_token: String,
     paths: State<'_, Mutex<LauncherPaths>>,
+    app: AppHandle,
 ) -> Result<(), String> {
     let p = paths.lock().map_err(|e| e.to_string())?;
 
@@ -38,7 +40,7 @@ pub fn launch_instance(
         serde_json::from_str(&version_text).map_err(|e| format!("Invalid version.json: {}", e))?;
 
     let java_exe = if let Some(java_version) = &manifest.java_version {
-        let (jre_root, jre_dir, java_path) = {
+        let (jre_root, _jre_dir, java_path) = {
             let jre_root = p.jres.clone();
             let jre_dir = p.jres.join(format!("jre{}", java_version.major_version));
             let java_path = if cfg!(target_os = "windows") {
@@ -76,8 +78,10 @@ pub fn launch_instance(
     for lib in &manifest.libraries {
         if utils::is_library_allowed(&lib.rules) {
             if let Some(artifact) = &lib.downloads.artifact {
-                let lib_path = libraries_root.join(&artifact.path);
-                jar_list.push(lib_path.to_string_lossy().into_owned());
+                if utils::native_artifact_matches(&artifact.path) {
+                    let lib_path = libraries_root.join(&artifact.path);
+                    jar_list.push(lib_path.to_string_lossy().into_owned());
+                }
             }
         }
     }
@@ -93,7 +97,10 @@ pub fn launch_instance(
     let separator = utils::get_classpath_separator();
     let classpath = jar_list.join(separator);
 
-    println!("Launching {} on {}", instance_name, std::env::consts::OS);
+    let _ = app.emit(
+        "launcher-log",
+        format!("Launching {} on {}", instance_name, std::env::consts::OS),
+    );
 
     let mut cmd = Command::new(&java_exe);
 
@@ -119,15 +126,44 @@ pub fn launch_instance(
         .arg("--userType")
         .arg("msa")
         .arg("--assetsDir")
-        .arg(assets_root)
+        .arg(&assets_root)
         .arg("--assetIndex")
         .arg(&manifest.asset_index.id)
         .arg("--gameDir")
         .arg(official_mc)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to launch game: {}. Is Java installed?", e))?;
+
+    if let Some(stdout) = child.stdout.take() {
+        let app_out = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_out.emit("mc-log", line);
+            }
+        });
+    }
+
+    if let Some(stderr) = child.stderr.take() {
+        let app_err = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_err.emit("mc-log", line);
+            }
+        });
+    }
+
+    let app_exit = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(status) = child.wait() {
+            let _ = app_exit.emit("mc-exit", status.code().unwrap_or(-1));
+        }
+    });
 
     Ok(())
 }
