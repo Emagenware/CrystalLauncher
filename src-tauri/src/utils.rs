@@ -24,7 +24,6 @@ pub fn get_classpath_separator() -> &'static str {
 }
 
 pub fn download_file_if_needed(url: &str, path: &Path) -> Result<(), String> {
-    // Skip if file already exists and has content
     if path.exists() {
         if let Ok(meta) = std::fs::metadata(path) {
             if meta.len() > 0 {
@@ -144,9 +143,7 @@ fn get_os_key() -> &'static str {
         "windows"
     } else if cfg!(target_os = "macos") {
         "osx"
-    }
-    // Mojang uses "osx" for macOS
-    else {
+    } else {
         "linux"
     }
 }
@@ -366,7 +363,6 @@ pub fn native_artifact_matches(path: &str) -> bool {
         return true;
     }
 
-    // OS gate.
     let os_ok = if cfg!(target_os = "windows") {
         path.contains("natives-windows")
     } else if cfg!(target_os = "macos") {
@@ -400,41 +396,66 @@ pub fn extract_natives(
     std::fs::create_dir_all(natives_dir).map_err(|e| e.to_string())?;
 
     for lib in &version_manifest.libraries {
-        if is_library_allowed(&lib.rules) {
-            if let Some(natives_map) = &lib.natives {
-                let os_key = get_os_key();
+        if !is_library_allowed(&lib.rules) {
+            continue;
+        }
 
-                if let Some(classifier_key) = natives_map.get(os_key) {
-                    if let Some(classifiers) = &lib.downloads.classifiers {
-                        if let Some(artifact) = classifiers.get(classifier_key) {
-                            let jar_path = libraries_root.join(&artifact.path);
-
-                            // Unzip the native jar
-                            if let Ok(file) = std::fs::File::open(&jar_path) {
-                                let mut archive =
-                                    zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-
-                                for i in 0..archive.len() {
-                                    let mut file =
-                                        archive.by_index(i).map_err(|e| e.to_string())?;
-                                    let path = file.mangled_name();
-
-                                    if path.starts_with("META-INF") || file.is_dir() {
-                                        continue;
-                                    }
-
-                                    let out_path = natives_dir.join(file.name());
-                                    let mut out_file = std::fs::File::create(&out_path)
-                                        .map_err(|e| e.to_string())?;
-                                    std::io::copy(&mut file, &mut out_file)
-                                        .map_err(|e| e.to_string())?;
-                                }
-                            }
-                        }
+        if let Some(natives_map) = &lib.natives {
+            let os_key = get_os_key();
+            if let Some(classifier_key) = natives_map.get(os_key) {
+                if let Some(classifiers) = &lib.downloads.classifiers {
+                    if let Some(artifact) = classifiers.get(classifier_key) {
+                        let jar_path = libraries_root.join(&artifact.path);
+                        extract_native_jar(&jar_path, natives_dir)?;
                     }
                 }
             }
         }
+
+        if let Some(artifact) = &lib.downloads.artifact {
+            if artifact.path.contains("natives-") && native_artifact_matches(&artifact.path) {
+                let jar_path = libraries_root.join(&artifact.path);
+                extract_native_jar(&jar_path, natives_dir)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn extract_native_jar(jar_path: &Path, natives_dir: &Path) -> Result<(), String> {
+    let file = match std::fs::File::open(jar_path) {
+        Ok(f) => f,
+        Err(_) => return Ok(()),
+    };
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        if entry.is_dir() {
+            continue;
+        }
+        let safe = match entry.enclosed_name() {
+            Some(p) => p.to_path_buf(),
+            None => continue,
+        };
+        let name = safe.to_string_lossy();
+        if name.starts_with("META-INF") {
+            continue;
+        }
+        let is_native = name.ends_with(".dylib")
+            || name.ends_with(".so")
+            || name.ends_with(".dll")
+            || name.ends_with(".jnilib");
+        if !is_native {
+            continue;
+        }
+        let file_name = match safe.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let out_path = natives_dir.join(file_name);
+        let mut out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut out_file).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
