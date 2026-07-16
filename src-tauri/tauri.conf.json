@@ -5,7 +5,7 @@
   "identifier": "com.tauri.dev",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:8080",
+    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build"
   },
