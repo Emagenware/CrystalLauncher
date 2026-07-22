@@ -1,12 +1,13 @@
-use tauri::Manager;
 use std::sync::Mutex;
+use tauri::Manager;
 
-mod models;
-mod commands; 
+mod commands;
 mod core;
+mod models;
 mod utils;
 
 use models::fs::LauncherPaths;
+use models::game_state::RunningGame;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,19 +21,23 @@ pub fn run() {
                         .build(),
                 )?;
             }
-            let root = app.path().app_data_dir().expect("failed to resolve app data dir");
-                let launcher_paths = LauncherPaths::new(root);
-                app.manage(Mutex::new(launcher_paths));
-                Ok(())
-            })
-            .invoke_handler(tauri::generate_handler![
-                commands::list_instances,
-                commands::create_instance,
-                commands::install_instance,
-                commands::launch_instance,
-                commands::start_login,
-                commands::refresh_login
-            ])
-            .run(tauri::generate_context!())
-            .expect("error while running tauri application");
-    }
+            let root = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve app data dir");
+            let launcher_paths = LauncherPaths::new(root);
+            app.manage(Mutex::new(launcher_paths));
+            app.manage(RunningGame::new());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_instances,
+            commands::create_instance,
+            commands::install_instance,
+            commands::launch_instance,
+            commands::start_login,
+            commands::refresh_login
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
