@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
+import type { GameExitEvent, GameLogEvent } from '../types';
 
 export async function setupInstallListeners(
 	onInstallStatus: (status: string) => void,
@@ -15,5 +16,23 @@ export async function setupInstallListeners(
 	return async () => {
 		(await unlistenStatus)();
 		(await unlistenError)();
+	};
+}
+
+export async function setupGameListeners(
+	onLog: (event: GameLogEvent) => void,
+	onExit: (event: GameExitEvent) => void,
+) {
+	const unlistenLog = listen<GameLogEvent>('game-log', (event) => {
+		onLog(event.payload);
+	});
+
+	const unlistenExit = listen<GameExitEvent>('game-exit', (event) => {
+		onExit(event.payload);
+	});
+
+	return async () => {
+		(await unlistenLog)();
+		(await unlistenExit)();
 	};
 }

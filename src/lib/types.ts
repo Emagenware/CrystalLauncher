@@ -21,3 +21,16 @@ export interface VersionManifest {
   };
   versions: VersionEntry[];
 }
+
+export type GameLogStream = "stdout" | "stderr";
+
+export interface GameLogEvent {
+  instance_name: string;
+  stream: GameLogStream;
+  line: string;
+}
+
+export interface GameExitEvent {
+  instance_name: string;
+  code: number | null;
+}
