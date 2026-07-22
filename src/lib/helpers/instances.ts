@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Account } from '$lib/types';
+import type { Account } from '../types';
 
 export async function listInstances(): Promise<string[]> {
 	try {

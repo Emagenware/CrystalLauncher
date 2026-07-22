@@ -1,6 +1,4 @@
-import type { VersionEntry, VersionManifest } from '$lib/types';
-
-// Re-export types for backwards compatibility
+import type { VersionEntry, VersionManifest } from '../types';
 export type { VersionEntry, VersionManifest };
 
 export async function fetchVersionManifest(): Promise<VersionManifest> {
