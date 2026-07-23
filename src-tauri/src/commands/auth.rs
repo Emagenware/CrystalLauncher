@@ -29,7 +29,7 @@ pub async fn start_login(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
 
     let auth_url = format!(
-        "https://login.live.com/oauth20_authorize.srf?client_id={}&response_type=code&redirect_uri={}&scope={}&prompt=select_account",
+        "https://login.live.com/oauth20_authorize.srf?client_id={}&response_type=code&redirect_uri={}&scope={}&prompt=select_account&lw=1&fl=dob,easi2&xsup=1&nopa=2",
         CLIENT_ID, REDIRECT_URI, SCOPES
     );
 
