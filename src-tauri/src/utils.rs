@@ -287,27 +287,23 @@ pub fn download_libraries(libraries_root: &Path, version_json: &str) -> Result<(
     let mut downloads = Vec::new();
 
     for lib in manifest.libraries {
-        match &lib.downloads.artifact {
-            Some(artifact) => {
-                if is_library_allowed(&lib.rules) {
-                    downloads.push((artifact.url.clone(), libraries_root.join(&artifact.path)));
-                }
+        if !is_library_allowed(&lib.rules) {
+            continue;
+        }
 
-                if let Some(natives_map) = &lib.natives {
-                    let os_key = get_os_key();
-                    if let Some(classifier_key) = natives_map.get(os_key) {
-                        if let Some(classifiers) = &lib.downloads.classifiers {
-                            if let Some(artifact) = classifiers.get(classifier_key) {
-                                downloads.push((
-                                    artifact.url.clone(),
-                                    libraries_root.join(&artifact.path),
-                                ));
-                            }
-                        }
+        if let Some(artifact) = &lib.downloads.artifact {
+            downloads.push((artifact.url.clone(), libraries_root.join(&artifact.path)));
+        }
+
+        if let Some(natives_map) = &lib.natives {
+            let os_key = get_os_key();
+            if let Some(classifier_key) = natives_map.get(os_key) {
+                if let Some(classifiers) = &lib.downloads.classifiers {
+                    if let Some(artifact) = classifiers.get(classifier_key) {
+                        downloads.push((artifact.url.clone(), libraries_root.join(&artifact.path)));
                     }
                 }
             }
-            None => {}
         }
     }
 
