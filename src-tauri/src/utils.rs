@@ -331,6 +331,9 @@ pub fn extract_natives(
     }
     std::fs::create_dir_all(natives_dir).map_err(|e| e.to_string())?;
 
+    let mut natives_jars_found = 0;
+    let mut files_extracted = 0;
+
     for lib in &version_manifest.libraries {
         if is_library_allowed(&lib.rules) {
             if let Some(natives_map) = &lib.natives {
@@ -341,25 +344,41 @@ pub fn extract_natives(
                         if let Some(artifact) = classifiers.get(classifier_key) {
                             let jar_path = libraries_root.join(&artifact.path);
 
-                            // Unzip the native jar
-                            if let Ok(file) = std::fs::File::open(&jar_path) {
-                                let mut archive =
-                                    zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+                            match std::fs::File::open(&jar_path) {
+                                Ok(file) => {
+                                    natives_jars_found += 1;
+                                    let mut archive = zip::ZipArchive::new(file).map_err(|e| {
+                                        format!("Bad natives jar {}: {}", jar_path.display(), e)
+                                    })?;
 
-                                for i in 0..archive.len() {
-                                    let mut file =
-                                        archive.by_index(i).map_err(|e| e.to_string())?;
-                                    let path = file.mangled_name();
+                                    for i in 0..archive.len() {
+                                        let mut file =
+                                            archive.by_index(i).map_err(|e| e.to_string())?;
+                                        let path = file.mangled_name();
 
-                                    if path.starts_with("META-INF") || file.is_dir() {
-                                        continue;
+                                        if path.starts_with("META-INF") || file.is_dir() {
+                                            continue;
+                                        }
+
+                                        let file_name = match path.file_name() {
+                                            Some(name) => name,
+                                            None => continue,
+                                        };
+                                        let out_path = natives_dir.join(file_name);
+                                        let mut out_file = std::fs::File::create(&out_path)
+                                            .map_err(|e| e.to_string())?;
+                                        std::io::copy(&mut file, &mut out_file)
+                                            .map_err(|e| e.to_string())?;
+                                        files_extracted += 1;
                                     }
-
-                                    let out_path = natives_dir.join(file.name());
-                                    let mut out_file = std::fs::File::create(&out_path)
-                                        .map_err(|e| e.to_string())?;
-                                    std::io::copy(&mut file, &mut out_file)
-                                        .map_err(|e| e.to_string())?;
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "WARN: natives jar missing for {}: {} ({})",
+                                        lib.name,
+                                        jar_path.display(),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -368,5 +387,13 @@ pub fn extract_natives(
             }
         }
     }
+
+    println!(
+        "extract_natives: found {} natives jar(s), extracted {} file(s) into {}",
+        natives_jars_found,
+        files_extracted,
+        natives_dir.display()
+    );
+
     Ok(())
 }

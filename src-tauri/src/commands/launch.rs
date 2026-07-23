@@ -147,7 +147,7 @@ fn do_launch(
         ))
         .arg("-cp")
         .arg(classpath)
-        .arg("net.minecraft.client.main.Main")
+        .arg(&manifest.main_class)
         .arg("--version")
         .arg(&manifest.id)
         .arg("--accessToken")
